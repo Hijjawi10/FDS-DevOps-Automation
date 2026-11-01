@@ -38,15 +38,29 @@ pipeline {
                 '''
             }
         }
+
+        stage('Docker Deploy') {
+            steps {
+                sh '''
+                    docker rm -f fds-devops-cicd 2>/dev/null || true
+
+                    docker run -d \
+                      --name fds-devops-cicd \
+                      --restart unless-stopped \
+                      -p 8007:8000 \
+                      fds-devops-app:jenkins
+                '''
+            }
+        }
     }
 
     post {
         success {
-            echo 'FDS CI Pipeline Passed - Docker Image Built!'
+            echo 'FDS CI/CD Pipeline Passed - Docker Deployed!'
         }
 
         failure {
-            echo 'FDS CI Pipeline Failed!'
+            echo 'FDS CI/CD Pipeline Failed!'
         }
     }
 }
