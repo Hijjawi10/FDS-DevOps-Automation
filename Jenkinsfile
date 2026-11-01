@@ -4,7 +4,7 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
-        timeout(time: 10, unit: 'MINUTES')
+        timeout(time: 15, unit: 'MINUTES')
     }
 
     stages {
@@ -30,11 +30,19 @@ pipeline {
                 '''
             }
         }
+
+        stage('Docker Build') {
+            steps {
+                sh '''
+                    docker build -t fds-devops-app:jenkins .
+                '''
+            }
+        }
     }
 
     post {
         success {
-            echo 'FDS CI Pipeline Passed!'
+            echo 'FDS CI Pipeline Passed - Docker Image Built!'
         }
 
         failure {
