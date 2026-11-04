@@ -8,7 +8,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
@@ -29,11 +28,11 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                echo 'Running automated tests...'
+                echo 'Running automated database tests...'
 
                 sh '''
-                    .venv/bin/python -m pytest -v
-                '''
+            TESTING=1 .venv/bin/python -m pytest -v
+        '''
             }
         }
 

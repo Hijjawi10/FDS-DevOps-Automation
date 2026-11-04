@@ -1,0 +1,102 @@
+{
+  "FDS_DevOps_Automation": {
+    "Type": "Folder",
+    "ControlmServer": "IN01",
+    "SiteStandard": "FDS",
+    "Application": "FDS",
+    "SubApplication": "DevOps",
+    "OrderMethod": "Manual",
+    "BusinessFields": [
+      {
+        "Partner code": "FDS"
+      }
+    ],
+    "FDS_PreDeployment_Check": {
+      "Type": "Job:Command",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "Command": "docker info >/dev/null 2>&1 && curl -fsS --retry 3 --retry-delay 3 --retry-all-errors --connect-timeout 5 --max-time 20 -o /dev/null http://127.0.0.1:8080/login",
+      "FDS_OnPreCheckSuccess": {
+        "Type": "If",
+        "CompletionStatus": "OK",
+        "FDS_AddPreCheckEvent": {
+          "Type": "Event:Add",
+          "Event": "FDS_PreCheck_OK"
+        }
+      }
+    },
+    "FDS_Jenkins_CICD": {
+      "Type": "Job:Jenkins",
+      "Host": "fds-hijjawi",
+      "ConnectionProfile": "FDS_JENKINS",
+      "Pipeline Name": "FDS-DevOps-CICD",
+      "Fetch Console Logs": "checked",
+      "Status Polling Frequency": "20",
+      "Failure Tolerance": "2",
+      "FDS_WaitPreCheck": {
+        "Type": "WaitForEvents",
+        "Events": [
+          {
+            "Event": "FDS_PreCheck_OK"
+          }
+        ]
+      },
+      "FDS_OnJenkinsSuccess": {
+        "Type": "If",
+        "CompletionStatus": "OK",
+        "FDS_AddJenkinsEvent": {
+          "Type": "Event:Add",
+          "Event": "FDS_Jenkins_OK"
+        }
+      },
+      "FDS_OnJenkinsFailure": {
+        "Type": "If",
+        "CompletionStatus": "NOTOK",
+        "FDS_AddFailureEvent": {
+          "Type": "Event:Add",
+          "Event": "FDS_Jenkins_FAILED"
+        }
+      },
+      "FDS_NotifyJenkinsFailure": {
+        "Type": "Notify:NotOK",
+        "Message": "ALERT: FDS Jenkins CI/CD Pipeline failed. Check Control-M Monitoring and Jenkins Console Output.",
+        "Destination": "JobLog",
+        "Urgency": "Urgent"
+      }
+    },
+    "FDS_Verify_Deployment": {
+      "Type": "Job:Command",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "Command": "curl -fsS http://127.0.0.1:8007/health",
+      "FDS_WaitJenkins": {
+        "Type": "WaitForEvents",
+        "Events": [
+          {
+            "Event": "FDS_Jenkins_OK"
+          }
+        ]
+      }
+    },
+    "FDS_CICD_SLA": {
+      "Type": "Job:SLAManagement",
+      "ServiceName": "FDS_CICD_Service",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "ServicePriority": "2",
+      "JobRunsDeviationsTolerance": "2",
+      "CompleteIn": {
+        "Time": "00:15"
+      }
+    },
+    "FDS_CICD_Flow": {
+      "Type": "Flow",
+      "Sequence": [
+        "FDS_PreDeployment_Check",
+        "FDS_Jenkins_CICD",
+        "FDS_Verify_Deployment",
+        "FDS_CICD_SLA"
+      ]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: fds-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: fds_devops
+      POSTGRES_USER: fds_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fds_app -d fds_devops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: fds-backend-db
+    restart: unless-stopped
+
+    ports:
+      - "8008:8000"
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: fds_devops
+      DB_USER: fds_app
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
