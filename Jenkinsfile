@@ -9,7 +9,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
@@ -103,11 +102,12 @@ pipeline {
                         echo "Starting Docker Compose deployment..."
 
                         docker compose config --quiet
-
-                        docker compose up -d \
-                          --build \
-                          --no-deps \
-                          backend
+                        docker compose \
+                        --project-name fds-devops-automation \
+                        up -d \
+                        --build \
+                         --no-deps \
+                           backend
 
                         echo "Docker Compose deployment completed!"
                     '''
