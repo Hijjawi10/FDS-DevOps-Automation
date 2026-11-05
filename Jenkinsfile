@@ -5,22 +5,29 @@ pipeline {
     options {
         disableConcurrentBuilds()
         timeout(time: 15, unit: 'MINUTES')
+        skipDefaultCheckout(true)
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo 'Checking out source code...'
+                echo 'Checking out source code from GitHub...'
                 checkout scm
             }
         }
 
         stage('Install Dependencies') {
             steps {
+                echo 'Installing Python dependencies...'
+
                 sh '''
                     set -e
+
                     python3 -m venv .venv
-                    .venv/bin/python -m pip install -r requirements.txt
+
+                    .venv/bin/python -m pip install \
+                      -r requirements.txt
                 '''
             }
         }
@@ -31,6 +38,7 @@ pipeline {
 
                 sh '''
                     set -e
+
                     TESTING=1 .venv/bin/python -m pytest -v
                 '''
             }
@@ -41,20 +49,24 @@ pipeline {
                 echo 'Building FastAPI Docker image...'
 
                 sh '''
-                    docker build -t fds-devops-app:jenkins .
+                    set -e
+
+                    docker build \
+                      -t fds-devops-app:jenkins .
                 '''
             }
         }
 
         stage('Check Database') {
             steps {
-                echo 'Checking PostgreSQL container and network...'
+                echo 'Checking PostgreSQL and Docker network...'
 
                 sh '''
                     set -e
 
                     docker network inspect \
-                      fds-devops-automation_default >/dev/null
+                      fds-devops-automation_default \
+                      >/dev/null
 
                     docker inspect fds-postgres >/dev/null
 
@@ -65,16 +77,18 @@ pipeline {
                     echo "PostgreSQL status: $STATUS"
 
                     if [ "$STATUS" != "healthy" ]; then
-                        echo "PostgreSQL is not healthy!"
+                        echo "ERROR: PostgreSQL is not healthy!"
                         exit 1
                     fi
+
+                    echo "PostgreSQL is healthy!"
                 '''
             }
         }
 
         stage('Docker Deploy') {
             steps {
-                echo 'Deploying FastAPI with PostgreSQL...'
+                echo 'Deploying FastAPI using Docker Compose...'
 
                 withCredentials([
                     string(
@@ -86,22 +100,16 @@ pipeline {
                         set +x
                         set -e
 
-                        docker rm -f fds-devops-cicd \
-                          2>/dev/null || true
+                        echo "Starting Docker Compose deployment..."
 
-                        docker run -d \
-                          --name fds-devops-cicd \
-                          --restart unless-stopped \
-                          --network fds-devops-automation_default \
-                          -p 8007:8000 \
-                          -e DB_HOST=postgres \
-                          -e DB_PORT=5432 \
-                          -e DB_NAME=fds_devops \
-                          -e DB_USER=fds_app \
-                          -e DB_PASSWORD \
-                          fds-devops-app:jenkins
+                        docker compose config --quiet
 
-                        echo "Docker deployment completed!"
+                        docker compose up -d \
+                          --build \
+                          --no-deps \
+                          backend
+
+                        echo "Docker Compose deployment completed!"
                     '''
                 }
             }
@@ -109,10 +117,12 @@ pipeline {
 
         stage('Health Check') {
             steps {
-                echo 'Checking application health...'
+                echo 'Verifying FastAPI application health...'
 
                 sh '''
                     set -e
+
+                    echo "Checking FastAPI on port 8007..."
 
                     for i in 1 2 3 4 5 6 7 8 9 10; do
 
@@ -125,14 +135,43 @@ pipeline {
                             exit 0
                         fi
 
-                        echo "Attempt $i: App not ready..."
+                        echo "Attempt $i: Application not ready..."
                         sleep 3
                     done
 
                     echo "Health Check FAILED!"
-                    docker logs --tail 30 fds-devops-cicd || true
+
+                    docker logs --tail 30 \
+                      fds-devops-cicd || true
 
                     exit 1
+                '''
+            }
+        }
+
+        stage('Verify Database Integration') {
+            steps {
+                echo 'Checking FastAPI PostgreSQL integration...'
+
+                sh '''
+                    set -e
+
+                    curl -fsS --max-time 10 \
+                      http://127.0.0.1:8007/products \
+                      -o /tmp/fds-products-response.json
+
+                    .venv/bin/python -c '
+import json
+
+with open("/tmp/fds-products-response.json") as f:
+    data = json.load(f)
+
+assert isinstance(data, list), \
+    "Products endpoint must return a JSON array"
+
+print("PostgreSQL Integration PASSED!")
+print("Products count:", len(data))
+'
                 '''
             }
         }
@@ -141,6 +180,7 @@ pipeline {
     post {
         success {
             echo 'FDS CI/CD Pipeline Passed!'
+            echo 'FastAPI and PostgreSQL deployed successfully!'
         }
 
         failure {

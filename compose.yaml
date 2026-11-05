@@ -5,6 +5,9 @@ services:
     container_name: fds-postgres
     restart: unless-stopped
 
+    ports:
+      - "127.0.0.1:5433:5432"
+
     environment:
       POSTGRES_DB: fds_devops
       POSTGRES_USER: fds_app
@@ -21,11 +24,12 @@ services:
 
   backend:
     build: .
-    container_name: fds-backend-db
+    image: fds-devops-app:jenkins
+    container_name: fds-devops-cicd
     restart: unless-stopped
 
     ports:
-      - "8008:8000"
+      - "8007:8000"
 
     environment:
       DB_HOST: postgres
