@@ -1,17 +1,21 @@
 
-import pytest
-
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool
-from sqlalchemy.orm import sessionmaker
-
-from database import Base, get_db
-from main import app
-import models
 import os
 
+# Prevent connecting to PostgreSQL during tests
+os.environ["TESTING"] = "1"
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+from app.main import app
+from app import models
+
+
+# SQLite database in memory
 SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
@@ -27,6 +31,7 @@ TestingSessionLocal = sessionmaker(
 )
 
 
+# Override production database dependency
 def override_get_db():
     db = TestingSessionLocal()
     try:
@@ -77,6 +82,8 @@ def test_get_product(client):
     }
 
     created = client.post("/products", json=product)
+    assert created.status_code == 201
+
     product_id = created.json()["id"]
 
     response = client.get(f"/products/{product_id}")
@@ -113,6 +120,8 @@ def test_update_product(client):
     }
 
     created = client.post("/products", json=product)
+    assert created.status_code == 201
+
     product_id = created.json()["id"]
 
     updated_product = {
@@ -138,6 +147,8 @@ def test_delete_product(client):
     }
 
     created = client.post("/products", json=product)
+    assert created.status_code == 201
+
     product_id = created.json()["id"]
 
     response = client.delete(f"/products/{product_id}")
