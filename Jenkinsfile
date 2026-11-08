@@ -8,12 +8,29 @@ pipeline {
         skipDefaultCheckout(true)
     }
 
+    environment {
+        COMPOSE_PROJECT = 'fds-devops-automation'
+        IMAGE_NAME = 'fds-devops-app'
+        CONTAINER_NAME = 'fds-devops-cicd'
+        IMAGE_TAG = 'jenkins'
+    }
+
     stages {
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
 
                 checkout scm
+
+                script {
+                    env.IMAGE_TAG = sh(
+                        script: 'git rev-parse --short=12 HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Git Commit Version: ${env.IMAGE_TAG}"
+                    echo "Docker Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                }
             }
         }
         stage('Install Dependencies') {
@@ -43,13 +60,16 @@ pipeline {
         }
         stage('Docker Build') {
             steps {
-                echo 'Building FastAPI Docker image...'
+                echo 'Building versioned Docker image...'
 
                 sh '''
                     set -e
 
                     docker build \
-                        -t fds-devops-app:jenkins .
+                        -t "$IMAGE_NAME:$IMAGE_TAG" \
+                        .
+
+                    echo "Docker Image Built: $IMAGE_NAME:$IMAGE_TAG"
                 '''
             }
         }
@@ -61,7 +81,7 @@ pipeline {
                     set -e
 
                     docker network inspect \
-                        fds-devops-automation_default \
+                        "${COMPOSE_PROJECT}_default" \
                         >/dev/null
 
                     docker inspect \
@@ -85,7 +105,7 @@ pipeline {
         }
         stage('Docker Deploy') {
             steps {
-                echo 'Deploying FastAPI using Docker Compose...'
+                echo 'Deploying versioned FastAPI image...'
 
                 withCredentials([
                     string(
@@ -100,32 +120,28 @@ pipeline {
                         echo "Validating Docker Compose configuration..."
 
                         docker compose \
-                            --project-name fds-devops-automation \
+                            --project-name "$COMPOSE_PROJECT" \
                             config --quiet
 
-                        echo "Deploying latest Jenkins Docker image..."
+                        echo "Deploying image: $IMAGE_NAME:$IMAGE_TAG"
 
                         docker compose \
-                            --project-name fds-devops-automation \
+                            --project-name "$COMPOSE_PROJECT" \
                             up -d \
                             --no-build \
                             --no-deps \
                             --force-recreate \
                             backend
 
-                        echo "Docker Compose deployment completed!"
+                        echo "Verifying deployed Docker image..."
 
-                        # Verify running container image
                         RUNNING_IMAGE=$(docker inspect \
                             --format='{{.Image}}' \
-                            fds-devops-cicd)
+                            "$CONTAINER_NAME")
 
-                        # Verify latest Jenkins image
                         BUILT_IMAGE=$(docker image inspect \
-                            fds-devops-app:jenkins \
+                            "$IMAGE_NAME:$IMAGE_TAG" \
                             --format='{{.Id}}')
-
-                        echo "Verifying deployed Docker image..."
 
                         if [ "$RUNNING_IMAGE" != "$BUILT_IMAGE" ]; then
                             echo "ERROR: Docker image mismatch!"
@@ -133,18 +149,17 @@ pipeline {
                         fi
 
                         echo "Docker image verification PASSED!"
+                        echo "Deployed Version: $IMAGE_TAG"
                     '''
                 }
             }
         }
         stage('Health Check') {
             steps {
-                echo 'Verifying FastAPI application health...'
+                echo 'Checking FastAPI application health...'
 
                 sh '''
                     set -e
-
-                    echo "Checking FastAPI on port 8007..."
 
                     for i in 1 2 3 4 5 6 7 8 9 10; do
 
@@ -164,7 +179,7 @@ pipeline {
                     echo "Health Check FAILED!"
 
                     docker logs --tail 30 \
-                        fds-devops-cicd || true
+                        "$CONTAINER_NAME" || true
 
                     exit 1
                 '''
@@ -177,14 +192,18 @@ pipeline {
                 sh '''
                     set -e
 
+                    RESPONSE_FILE=$(mktemp)
+                    trap 'rm -f "$RESPONSE_FILE"' EXIT
+
                     curl -fsS --max-time 10 \
                         http://127.0.0.1:8007/products \
-                        -o /tmp/fds-products-response.json
+                        -o "$RESPONSE_FILE"
 
-                    .venv/bin/python -c '
+                    .venv/bin/python - "$RESPONSE_FILE" <<'PY'
 import json
+import sys
 
-with open("/tmp/fds-products-response.json") as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 
 assert isinstance(data, list), \
@@ -192,15 +211,38 @@ assert isinstance(data, list), \
 
 print("PostgreSQL Integration PASSED!")
 print("Products count:", len(data))
-'
+PY
+                '''
+            }
+        }
+        stage('Verify Release') {
+            steps {
+                echo 'Verifying deployed Git version...'
+
+                sh '''
+                    set -e
+
+                    RUNNING_IMAGE=$(docker inspect \
+                        --format='{{.Image}}' \
+                        "$CONTAINER_NAME")
+
+                    EXPECTED_IMAGE=$(docker image inspect \
+                        "$IMAGE_NAME:$IMAGE_TAG" \
+                        --format='{{.Id}}')
+
+                    test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
+
+                    echo "Release verification PASSED!"
+                    echo "Running Version: $IMAGE_TAG"
                 '''
             }
         }
     }
     post {
         success {
-            echo 'FDS CI/CD Pipeline Passed!'
-            echo 'FastAPI and PostgreSQL deployed successfully!'
+            echo "FDS CI/CD Pipeline Passed!"
+            echo "Deployed Version: ${env.IMAGE_TAG}"
+            echo 'FastAPI and PostgreSQL deployment verified!'
         }
 
         failure {
