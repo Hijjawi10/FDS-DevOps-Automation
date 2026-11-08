@@ -29,7 +29,7 @@
       "Type": "Job:Command",
       "Host": "fds-hijjawi",
       "RunAs": "hijjawi10",
-      "Command": "/bin/bash /home/hijjawi10/Desktop/FDS-DevOps-Automation/backup_database.sh"
+      "Command": "/bin/bash /home/hijjawi10/Desktop/FDS-DevOps-Automation/scripts/backup_database.sh"
     },
     "FDS_Jenkins_CICD": {
       "Type": "Job:Jenkins",

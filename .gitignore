@@ -1,23 +1,48 @@
-
-# Python Virtual Environment
 .venv/
 venv/
+env/
 
-# Python Cache
 __pycache__/
-*.pyc
-
-# Pytest Cache
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Environment Variables and Secrets
 .env
 .env.*
-
-# VS Code Local Settings
-.vscode/
-
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
 
 backups/
 *.dump
-*.sql
+*.backup
+*.sql.gz
+
+*.db
+*.sqlite
+*.sqlite3
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+.DS_Store
+Thumbs.db
+
+*.log
+logs/
+
+tmp/
+temp/
+*.tmp
+
+build/
+dist/
+*.egg-info/
