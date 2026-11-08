@@ -1,22 +1,18 @@
-
-#!/usr/bin/env bash
-
 set -Eeuo pipefail
 
-# ==========================================
-# FDS PostgreSQL Automated Database Backup
-# ==========================================
+umask 077
+
 
 PROJECT_DIR="/home/hijjawi10/Desktop/FDS-DevOps-Automation"
-
 BACKUP_DIR="$PROJECT_DIR/backups"
 
 CONTAINER_NAME="fds-postgres"
 DATABASE_NAME="fds_devops"
 DATABASE_USER="fds_app"
 
-TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+RETENTION_HOURS=72
 
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="$BACKUP_DIR/fds_devops_$TIMESTAMP.dump"
 
 echo "======================================"
@@ -24,10 +20,9 @@ echo "FDS PostgreSQL Backup Started"
 echo "Date: $(date)"
 echo "======================================"
 
-# Create backup directory
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 
-# Check Docker container
 echo "Checking PostgreSQL Container..."
 
 if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
@@ -35,7 +30,6 @@ if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Check PostgreSQL is healthy
 STATUS=$(docker inspect \
     --format='{{.State.Health.Status}}' \
     "$CONTAINER_NAME")
@@ -47,7 +41,6 @@ fi
 
 echo "PostgreSQL is healthy!"
 
-# Create backup
 echo "Creating Database Backup..."
 
 if ! docker exec "$CONTAINER_NAME" \
@@ -62,14 +55,12 @@ if ! docker exec "$CONTAINER_NAME" \
     exit 1
 fi
 
-# Check backup file is not empty
 if [ ! -s "$BACKUP_FILE" ]; then
     echo "ERROR: Backup file is empty!"
     rm -f "$BACKUP_FILE"
     exit 1
 fi
 
-# Verify backup archive catalog
 echo "Verifying Backup Archive..."
 
 if ! docker exec -i "$CONTAINER_NAME" \
@@ -84,5 +75,21 @@ echo "======================================"
 echo "DATABASE BACKUP SUCCESSFUL!"
 echo "Backup File: $BACKUP_FILE"
 echo "Backup Size: $(du -h "$BACKUP_FILE" | cut -f1)"
+echo "======================================"
+
+
+echo "Applying Backup Retention Policy..."
+echo "Retention Period: $RETENTION_HOURS hours"
+
+find "$BACKUP_DIR" \
+    -maxdepth 1 \
+    -type f \
+    -name 'fds_devops_????-??-??_??-??-??.dump' \
+    -mmin +4320 \
+    ! -samefile "$BACKUP_FILE" \
+    -print \
+    -delete
+
+echo "Backup Retention Completed!"
 echo "Completed: $(date)"
 echo "======================================"

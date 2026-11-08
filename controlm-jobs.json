@@ -31,6 +31,12 @@
       "RunAs": "hijjawi10",
       "Command": "/bin/bash /home/hijjawi10/Desktop/FDS-DevOps-Automation/scripts/backup_database.sh"
     },
+    "FDS_Verify_Backup_Restore": {
+      "Type": "Job:Command",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "Command": "/bin/bash /home/hijjawi10/Desktop/FDS-DevOps-Automation/scripts/verify_backup_restore.sh"
+    },
     "FDS_Jenkins_CICD": {
       "Type": "Job:Jenkins",
       "Host": "fds-hijjawi",
@@ -95,13 +101,12 @@
         "Time": "00:15"
       }
     },
-
-
     "FDS_CICD_Flow": {
       "Type": "Flow",
       "Sequence": [
         "FDS_PreDeployment_Check",
         "FDS_Database_Backup",
+        "FDS_Verify_Backup_Restore",
         "FDS_Jenkins_CICD",
         "FDS_Verify_Deployment",
         "FDS_CICD_SLA"
