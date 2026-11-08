@@ -41,6 +41,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      
+        
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
 
 volumes:
   postgres_data:
