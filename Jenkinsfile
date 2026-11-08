@@ -9,7 +9,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
@@ -17,7 +16,6 @@ pipeline {
                 checkout scm
             }
         }
-
         stage('Install Dependencies') {
             steps {
                 echo 'Installing Python dependencies...'
@@ -43,7 +41,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Docker Build') {
             steps {
                 echo 'Building FastAPI Docker image...'
@@ -56,7 +53,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Check Database') {
             steps {
                 echo 'Checking PostgreSQL and Docker network...'
@@ -107,21 +103,40 @@ pipeline {
                             --project-name fds-devops-automation \
                             config --quiet
 
-                        echo "Deploying Backend..."
+                        echo "Deploying latest Jenkins Docker image..."
 
                         docker compose \
                             --project-name fds-devops-automation \
                             up -d \
-                            --build \
+                            --no-build \
                             --no-deps \
+                            --force-recreate \
                             backend
 
                         echo "Docker Compose deployment completed!"
+
+                        # Verify running container image
+                        RUNNING_IMAGE=$(docker inspect \
+                            --format='{{.Image}}' \
+                            fds-devops-cicd)
+
+                        # Verify latest Jenkins image
+                        BUILT_IMAGE=$(docker image inspect \
+                            fds-devops-app:jenkins \
+                            --format='{{.Id}}')
+
+                        echo "Verifying deployed Docker image..."
+
+                        if [ "$RUNNING_IMAGE" != "$BUILT_IMAGE" ]; then
+                            echo "ERROR: Docker image mismatch!"
+                            exit 1
+                        fi
+
+                        echo "Docker image verification PASSED!"
                     '''
                 }
             }
         }
-
         stage('Health Check') {
             steps {
                 echo 'Verifying FastAPI application health...'
@@ -155,7 +170,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Verify Database Integration') {
             steps {
                 echo 'Checking FastAPI PostgreSQL integration...'
@@ -183,7 +197,6 @@ print("Products count:", len(data))
             }
         }
     }
-
     post {
         success {
             echo 'FDS CI/CD Pipeline Passed!'
