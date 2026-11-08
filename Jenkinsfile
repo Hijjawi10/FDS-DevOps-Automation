@@ -12,10 +12,13 @@ pipeline {
         COMPOSE_PROJECT = 'fds-devops-automation'
         IMAGE_NAME = 'fds-devops-app'
         CONTAINER_NAME = 'fds-devops-cicd'
-        IMAGE_TAG = 'jenkins'
     }
 
     stages {
+
+        // ==========================================
+        // 1. Checkout Source Code
+        // ==========================================
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
@@ -23,16 +26,26 @@ pipeline {
                 checkout scm
 
                 script {
-                    env.IMAGE_TAG = sh(
+                    def commitSha = sh(
                         script: 'git rev-parse --short=12 HEAD',
                         returnStdout: true
                     ).trim()
+
+                    if (!(commitSha ==~ /^[0-9a-f]{12}$/)) {
+                        error("Invalid Git Commit SHA: ${commitSha}")
+                    }
+
+                    env.IMAGE_TAG = commitSha
 
                     echo "Git Commit Version: ${env.IMAGE_TAG}"
                     echo "Docker Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
                 }
             }
         }
+
+        // ==========================================
+        // 2. Install Python Dependencies
+        // ==========================================
         stage('Install Dependencies') {
             steps {
                 echo 'Installing Python dependencies...'
@@ -47,6 +60,10 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 3. Run Automated Tests
+        // ==========================================
         stage('Run Tests') {
             steps {
                 echo 'Running automated tests with SQLite...'
@@ -58,12 +75,18 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 4. Docker Image Build with Git SHA
+        // ==========================================
         stage('Docker Build') {
             steps {
                 echo 'Building versioned Docker image...'
 
                 sh '''
                     set -e
+
+                    : "${IMAGE_TAG:?IMAGE_TAG is missing}"
 
                     docker build \
                         -t "$IMAGE_NAME:$IMAGE_TAG" \
@@ -73,6 +96,10 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 5. Check PostgreSQL and Docker Network
+        // ==========================================
         stage('Check Database') {
             steps {
                 echo 'Checking PostgreSQL and Docker network...'
@@ -103,6 +130,10 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 6. Deploy Versioned Image with Docker Compose
+        // ==========================================
         stage('Docker Deploy') {
             steps {
                 echo 'Deploying versioned FastAPI image...'
@@ -116,6 +147,8 @@ pipeline {
                     sh '''
                         set +x
                         set -e
+
+                        : "${IMAGE_TAG:?IMAGE_TAG is missing}"
 
                         echo "Validating Docker Compose configuration..."
 
@@ -154,6 +187,10 @@ pipeline {
                 }
             }
         }
+
+        // ==========================================
+        // 7. FastAPI Health Check
+        // ==========================================
         stage('Health Check') {
             steps {
                 echo 'Checking FastAPI application health...'
@@ -185,6 +222,10 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 8. Verify PostgreSQL Integration
+        // ==========================================
         stage('Verify Database Integration') {
             steps {
                 echo 'Checking FastAPI PostgreSQL integration...'
@@ -215,12 +256,18 @@ PY
                 '''
             }
         }
+
+        // ==========================================
+        // 9. Verify Deployed Release
+        // ==========================================
         stage('Verify Release') {
             steps {
                 echo 'Verifying deployed Git version...'
 
                 sh '''
                     set -e
+
+                    : "${IMAGE_TAG:?IMAGE_TAG is missing}"
 
                     RUNNING_IMAGE=$(docker inspect \
                         --format='{{.Image}}' \
@@ -230,7 +277,10 @@ PY
                         "$IMAGE_NAME:$IMAGE_TAG" \
                         --format='{{.Id}}')
 
-                    test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
+                    if [ "$RUNNING_IMAGE" != "$EXPECTED_IMAGE" ]; then
+                        echo "ERROR: Release verification failed!"
+                        exit 1
+                    fi
 
                     echo "Release verification PASSED!"
                     echo "Running Version: $IMAGE_TAG"
@@ -238,9 +288,13 @@ PY
             }
         }
     }
+
+    // ==========================================
+    // Pipeline Notifications
+    // ==========================================
     post {
         success {
-            echo "FDS CI/CD Pipeline Passed!"
+            echo 'FDS CI/CD Pipeline Passed!'
             echo "Deployed Version: ${env.IMAGE_TAG}"
             echo 'FastAPI and PostgreSQL deployment verified!'
         }
