@@ -9,9 +9,11 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 echo 'Checking out source code from GitHub...'
+
                 checkout scm
             }
         }
@@ -26,11 +28,10 @@ pipeline {
                     python3 -m venv .venv
 
                     .venv/bin/python -m pip install \
-                      -r requirements.txt
+                        -r requirements.txt
                 '''
             }
         }
-
         stage('Run Tests') {
             steps {
                 echo 'Running automated tests with SQLite...'
@@ -51,7 +52,7 @@ pipeline {
                     set -e
 
                     docker build \
-                      -t fds-devops-app:jenkins .
+                        -t fds-devops-app:jenkins .
                 '''
             }
         }
@@ -64,14 +65,16 @@ pipeline {
                     set -e
 
                     docker network inspect \
-                      fds-devops-automation_default \
-                      >/dev/null
+                        fds-devops-automation_default \
+                        >/dev/null
 
-                    docker inspect fds-postgres >/dev/null
+                    docker inspect \
+                        fds-postgres \
+                        >/dev/null
 
                     STATUS=$(docker inspect \
-                      --format='{{.State.Health.Status}}' \
-                      fds-postgres)
+                        --format='{{.State.Health.Status}}' \
+                        fds-postgres)
 
                     echo "PostgreSQL status: $STATUS"
 
@@ -84,7 +87,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Docker Deploy') {
             steps {
                 echo 'Deploying FastAPI using Docker Compose...'
@@ -99,15 +101,20 @@ pipeline {
                         set +x
                         set -e
 
-                        echo "Starting Docker Compose deployment..."
+                        echo "Validating Docker Compose configuration..."
 
-                        docker compose config --quiet
                         docker compose \
-                        --project-name fds-devops-automation \
-                        up -d \
-                        --build \
-                         --no-deps \
-                           backend
+                            --project-name fds-devops-automation \
+                            config --quiet
+
+                        echo "Deploying Backend..."
+
+                        docker compose \
+                            --project-name fds-devops-automation \
+                            up -d \
+                            --build \
+                            --no-deps \
+                            backend
 
                         echo "Docker Compose deployment completed!"
                     '''
@@ -127,8 +134,8 @@ pipeline {
                     for i in 1 2 3 4 5 6 7 8 9 10; do
 
                         RESPONSE=$(curl -fsS --max-time 5 \
-                          http://127.0.0.1:8007/health \
-                          2>/dev/null) || RESPONSE=""
+                            http://127.0.0.1:8007/health \
+                            2>/dev/null) || RESPONSE=""
 
                         if [ "$RESPONSE" = '{"status":"ok"}' ]; then
                             echo "Health Check PASSED!"
@@ -142,7 +149,7 @@ pipeline {
                     echo "Health Check FAILED!"
 
                     docker logs --tail 30 \
-                      fds-devops-cicd || true
+                        fds-devops-cicd || true
 
                     exit 1
                 '''
@@ -157,8 +164,8 @@ pipeline {
                     set -e
 
                     curl -fsS --max-time 10 \
-                      http://127.0.0.1:8007/products \
-                      -o /tmp/fds-products-response.json
+                        http://127.0.0.1:8007/products \
+                        -o /tmp/fds-products-response.json
 
                     .venv/bin/python -c '
 import json
