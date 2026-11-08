@@ -25,6 +25,12 @@
         }
       }
     },
+    "FDS_Database_Backup": {
+      "Type": "Job:Command",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "Command": "/bin/bash /home/hijjawi10/Desktop/FDS-DevOps-Automation/backup_database.sh"
+    },
     "FDS_Jenkins_CICD": {
       "Type": "Job:Jenkins",
       "Host": "fds-hijjawi",
@@ -59,7 +65,7 @@
       },
       "FDS_NotifyJenkinsFailure": {
         "Type": "Notify:NotOK",
-        "Message": "ALERT: FDS Jenkins CI/CD Pipeline failed. Check Control-M Monitoring and Jenkins Console Output.",
+        "Message": "ALERT: FDS Jenkins CI/CD failed. Check Jenkins Console Output.",
         "Destination": "JobLog",
         "Urgency": "Urgent"
       }
@@ -68,7 +74,7 @@
       "Type": "Job:Command",
       "Host": "fds-hijjawi",
       "RunAs": "hijjawi10",
-      "Command": "curl -fsS http://127.0.0.1:8007/health",
+      "Command": "curl -fsS http://127.0.0.1:8007/health && curl -fsS http://127.0.0.1:8007/products",
       "FDS_WaitJenkins": {
         "Type": "WaitForEvents",
         "Events": [
@@ -80,19 +86,22 @@
     },
     "FDS_CICD_SLA": {
       "Type": "Job:SLAManagement",
-      "ServiceName": "FDS_CICD_Service",
       "Host": "fds-hijjawi",
       "RunAs": "hijjawi10",
+      "ServiceName": "FDS_CICD_Service",
       "ServicePriority": "2",
       "JobRunsDeviationsTolerance": "2",
       "CompleteIn": {
         "Time": "00:15"
       }
     },
+
+
     "FDS_CICD_Flow": {
       "Type": "Flow",
       "Sequence": [
         "FDS_PreDeployment_Check",
+        "FDS_Database_Backup",
         "FDS_Jenkins_CICD",
         "FDS_Verify_Deployment",
         "FDS_CICD_SLA"
