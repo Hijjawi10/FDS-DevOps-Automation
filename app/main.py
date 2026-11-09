@@ -30,9 +30,9 @@ app.include_router(products_router)
 @app.get("/")
 def home():
     return {
-        "message": "FDS DevOps Application is running"
+        "message": "FDS DevOps Application is running",
+        "version": "2.0.0"
     }
-
 
 @app.get("/health")
 def health():
