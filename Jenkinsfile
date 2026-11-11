@@ -17,12 +17,10 @@ pipeline {
     stages {
 
         // ==========================================
-        // 1. Checkout Source Code
+        // 1. Checkout
         // ==========================================
         stage('Checkout') {
             steps {
-                echo 'Checking out source code from GitHub...'
-
                 checkout scm
 
                 script {
@@ -32,24 +30,24 @@ pipeline {
                     ).trim()
 
                     if (!(commitSha ==~ /^[0-9a-f]{12}$/)) {
-                        error("Invalid Git Commit SHA: ${commitSha}")
+                        error("Invalid Git SHA: ${commitSha}")
                     }
 
                     env.IMAGE_TAG = commitSha
+                    env.DEPLOY_ATTEMPTED = 'false'
+                    env.ROLLBACK_READY = 'false'
 
                     echo "Git Commit Version: ${env.IMAGE_TAG}"
-                    echo "Docker Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo "New Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
                 }
             }
         }
 
         // ==========================================
-        // 2. Install Python Dependencies
+        // 2. Install Dependencies
         // ==========================================
         stage('Install Dependencies') {
             steps {
-                echo 'Installing Python dependencies...'
-
                 sh '''
                     set -e
 
@@ -62,12 +60,10 @@ pipeline {
         }
 
         // ==========================================
-        // 3. Run Automated Tests
+        // 3. Automated Tests
         // ==========================================
         stage('Run Tests') {
             steps {
-                echo 'Running automated tests with SQLite...'
-
                 sh '''
                     set -e
 
@@ -77,12 +73,65 @@ pipeline {
         }
 
         // ==========================================
-        // 4. Docker Image Build with Git SHA
+        // 4. Capture Previous Release
+        // ==========================================
+        stage('Capture Previous Release') {
+            steps {
+                echo 'Saving currently running Docker image...'
+
+                script {
+                    env.ROLLBACK_TAG = "rollback-${env.BUILD_NUMBER}"
+
+                    def runningState = sh(
+                        script: """
+                            docker inspect \
+                              --format='{{.State.Running}}' \
+                              '${env.CONTAINER_NAME}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (runningState != 'true') {
+                        error('Previous backend is not running. Deployment aborted.')
+                    }
+
+                    env.PREVIOUS_IMAGE_ID = sh(
+                        script: """
+                            docker inspect \
+                              --format='{{.Image}}' \
+                              '${env.CONTAINER_NAME}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    sh '''
+                        set -e
+
+                        docker tag \
+                            "$PREVIOUS_IMAGE_ID" \
+                            "$IMAGE_NAME:$ROLLBACK_TAG"
+
+                        SAVED_IMAGE=$(docker image inspect \
+                            "$IMAGE_NAME:$ROLLBACK_TAG" \
+                            --format='{{.Id}}')
+
+                        test "$SAVED_IMAGE" = "$PREVIOUS_IMAGE_ID"
+                    '''
+
+                    env.ROLLBACK_READY = 'true'
+
+                    echo "Previous Image ID: ${env.PREVIOUS_IMAGE_ID}"
+                    echo "Rollback Image: ${env.IMAGE_NAME}:${env.ROLLBACK_TAG}"
+                    echo 'Previous release saved successfully!'
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. Docker Build
         // ==========================================
         stage('Docker Build') {
             steps {
-                echo 'Building versioned Docker image...'
-
                 sh '''
                     set -e
 
@@ -98,21 +147,15 @@ pipeline {
         }
 
         // ==========================================
-        // 5. Check PostgreSQL and Docker Network
+        // 6. Check PostgreSQL
         // ==========================================
         stage('Check Database') {
             steps {
-                echo 'Checking PostgreSQL and Docker network...'
-
                 sh '''
                     set -e
 
                     docker network inspect \
                         "${COMPOSE_PROJECT}_default" \
-                        >/dev/null
-
-                    docker inspect \
-                        fds-postgres \
                         >/dev/null
 
                     STATUS=$(docker inspect \
@@ -125,18 +168,18 @@ pipeline {
                         echo "ERROR: PostgreSQL is not healthy!"
                         exit 1
                     fi
-
-                    echo "PostgreSQL is healthy!"
                 '''
             }
         }
 
         // ==========================================
-        // 6. Deploy Versioned Image with Docker Compose
+        // 7. Docker Deploy
         // ==========================================
         stage('Docker Deploy') {
             steps {
-                echo 'Deploying versioned FastAPI image...'
+                script {
+                    env.DEPLOY_ATTEMPTED = 'true'
+                }
 
                 withCredentials([
                     string(
@@ -149,8 +192,6 @@ pipeline {
                         set -e
 
                         : "${IMAGE_TAG:?IMAGE_TAG is missing}"
-
-                        echo "Validating Docker Compose configuration..."
 
                         docker compose \
                             --project-name "$COMPOSE_PROJECT" \
@@ -166,35 +207,30 @@ pipeline {
                             --force-recreate \
                             backend
 
-                        echo "Verifying deployed Docker image..."
-
                         RUNNING_IMAGE=$(docker inspect \
                             --format='{{.Image}}' \
                             "$CONTAINER_NAME")
 
-                        BUILT_IMAGE=$(docker image inspect \
+                        EXPECTED_IMAGE=$(docker image inspect \
                             "$IMAGE_NAME:$IMAGE_TAG" \
                             --format='{{.Id}}')
 
-                        if [ "$RUNNING_IMAGE" != "$BUILT_IMAGE" ]; then
+                        if [ "$RUNNING_IMAGE" != "$EXPECTED_IMAGE" ]; then
                             echo "ERROR: Docker image mismatch!"
                             exit 1
                         fi
 
-                        echo "Docker image verification PASSED!"
-                        echo "Deployed Version: $IMAGE_TAG"
+                        echo "Docker Deploy PASSED!"
                     '''
                 }
             }
         }
 
         // ==========================================
-        // 7. FastAPI Health Check
+        // 8. Health Check
         // ==========================================
         stage('Health Check') {
             steps {
-                echo 'Checking FastAPI application health...'
-
                 sh '''
                     set -e
 
@@ -214,7 +250,6 @@ pipeline {
                     done
 
                     echo "Health Check FAILED!"
-
                     docker logs --tail 30 \
                         "$CONTAINER_NAME" || true
 
@@ -224,12 +259,10 @@ pipeline {
         }
 
         // ==========================================
-        // 8. Verify PostgreSQL Integration
+        // 9. PostgreSQL Integration
         // ==========================================
         stage('Verify Database Integration') {
             steps {
-                echo 'Checking FastAPI PostgreSQL integration...'
-
                 sh '''
                     set -e
 
@@ -258,16 +291,12 @@ PY
         }
 
         // ==========================================
-        // 9. Verify Deployed Release
+        // 10. Verify Release
         // ==========================================
         stage('Verify Release') {
             steps {
-                echo 'Verifying deployed Git version...'
-
                 sh '''
                     set -e
-
-                    : "${IMAGE_TAG:?IMAGE_TAG is missing}"
 
                     RUNNING_IMAGE=$(docker inspect \
                         --format='{{.Image}}' \
@@ -277,10 +306,7 @@ PY
                         "$IMAGE_NAME:$IMAGE_TAG" \
                         --format='{{.Id}}')
 
-                    if [ "$RUNNING_IMAGE" != "$EXPECTED_IMAGE" ]; then
-                        echo "ERROR: Release verification failed!"
-                        exit 1
-                    fi
+                    test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
 
                     echo "Release verification PASSED!"
                     echo "Running Version: $IMAGE_TAG"
@@ -290,17 +316,128 @@ PY
     }
 
     // ==========================================
-    // Pipeline Notifications
+    // Success & Automated Rollback
     // ==========================================
     post {
+
         success {
-            echo 'FDS CI/CD Pipeline Passed!'
+            echo 'FDS CI/CD Pipeline PASSED!'
             echo "Deployed Version: ${env.IMAGE_TAG}"
-            echo 'FastAPI and PostgreSQL deployment verified!'
+            echo 'New release is running successfully.'
         }
 
         failure {
-            echo 'FDS CI/CD Pipeline Failed!'
+            echo 'FDS CI/CD Pipeline FAILED!'
+
+            script {
+                if (
+                    env.DEPLOY_ATTEMPTED == 'true' &&
+                    env.ROLLBACK_READY == 'true'
+                ) {
+                    echo 'Starting AUTOMATED ROLLBACK...'
+
+                    withCredentials([
+                        string(
+                            credentialsId: 'fds-postgres-password',
+                            variable: 'DB_PASSWORD'
+                        )
+                    ]) {
+                        def rollbackStatus = sh(
+                            returnStatus: true,
+                            script: '''
+                                set +x
+                                set -e
+
+                                : "${ROLLBACK_TAG:?Missing rollback tag}"
+                                : "${PREVIOUS_IMAGE_ID:?Missing previous image}"
+
+                                EXPECTED_IMAGE=$(docker image inspect \
+                                    "$IMAGE_NAME:$ROLLBACK_TAG" \
+                                    --format='{{.Id}}')
+
+                                test "$EXPECTED_IMAGE" = "$PREVIOUS_IMAGE_ID"
+
+                                CURRENT_IMAGE=$(docker inspect \
+                                    --format='{{.Image}}' \
+                                    "$CONTAINER_NAME" 2>/dev/null) || CURRENT_IMAGE=""
+
+                                CURRENT_RUNNING=$(docker inspect \
+                                    --format='{{.State.Running}}' \
+                                    "$CONTAINER_NAME" 2>/dev/null) || CURRENT_RUNNING=""
+
+                                if [ "$CURRENT_IMAGE" = "$EXPECTED_IMAGE" ] && \
+                                   [ "$CURRENT_RUNNING" = "true" ]; then
+                                    echo "Previous image is already running."
+                                else
+                                    echo "Restoring previous Docker image..."
+
+                                    IMAGE_TAG="$ROLLBACK_TAG" docker compose \
+                                        --project-name "$COMPOSE_PROJECT" \
+                                        up -d \
+                                        --no-build \
+                                        --no-deps \
+                                        --force-recreate \
+                                        backend
+                                fi
+
+                                RUNNING_IMAGE=$(docker inspect \
+                                    --format='{{.Image}}' \
+                                    "$CONTAINER_NAME")
+
+                                test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
+
+                                echo "Checking rollback health..."
+
+                                HEALTH_OK=0
+
+                                for i in 1 2 3 4 5 6 7 8 9 10; do
+                                    RESPONSE=$(curl -fsS --max-time 5 \
+                                        http://127.0.0.1:8007/health \
+                                        2>/dev/null) || RESPONSE=""
+
+                                    if [ "$RESPONSE" = '{"status":"ok"}' ]; then
+                                        HEALTH_OK=1
+                                        break
+                                    fi
+
+                                    sleep 3
+                                done
+
+                                if [ "$HEALTH_OK" != "1" ]; then
+                                    echo "ERROR: Rollback health check failed!"
+                                    exit 1
+                                fi
+
+                                echo "Checking database after rollback..."
+
+                                curl -fsS --max-time 10 \
+                                    http://127.0.0.1:8007/products \
+                                    -o /dev/null
+
+                                DB_STATUS=$(docker inspect \
+                                    --format='{{.State.Health.Status}}' \
+                                    fds-postgres)
+
+                                test "$DB_STATUS" = "healthy"
+
+                                echo "AUTOMATED ROLLBACK SUCCESSFUL!"
+                                echo "Restored Image: $IMAGE_NAME:$ROLLBACK_TAG"
+                            '''
+                        )
+
+                        if (rollbackStatus == 0) {
+                            echo 'Previous release restored and checks passed.'
+                        } else {
+                            echo 'AUTOMATED ROLLBACK FAILED!'
+                            echo 'Manual Docker investigation is required.'
+                            echo 'Do not delete PostgreSQL or its volumes.'
+                        }
+                    }
+                } else {
+                    echo 'Deployment was not attempted or no rollback image is available.'
+                    echo 'Automatic rollback skipped.'
+                }
+            }
         }
 
         always {
