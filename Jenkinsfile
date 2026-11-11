@@ -17,10 +17,12 @@ pipeline {
     stages {
 
         // ==========================================
-        // 1. Checkout
+        // 1. Checkout Source Code
         // ==========================================
         stage('Checkout') {
             steps {
+                echo 'Checking out source code from GitHub...'
+
                 checkout scm
 
                 script {
@@ -38,7 +40,7 @@ pipeline {
                     env.ROLLBACK_READY = 'false'
 
                     echo "Git Commit Version: ${env.IMAGE_TAG}"
-                    echo "New Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo "Docker Image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
                 }
             }
         }
@@ -48,6 +50,8 @@ pipeline {
         // ==========================================
         stage('Install Dependencies') {
             steps {
+                echo 'Installing Python dependencies...'
+
                 sh '''
                     set -e
 
@@ -60,10 +64,12 @@ pipeline {
         }
 
         // ==========================================
-        // 3. Automated Tests
+        // 3. Run Automated Tests
         // ==========================================
         stage('Run Tests') {
             steps {
+                echo 'Running automated tests with SQLite...'
+
                 sh '''
                     set -e
 
@@ -77,7 +83,7 @@ pipeline {
         // ==========================================
         stage('Capture Previous Release') {
             steps {
-                echo 'Saving currently running Docker image...'
+                echo 'Capturing current release for rollback...'
 
                 script {
                     env.ROLLBACK_TAG = "rollback-${env.BUILD_NUMBER}"
@@ -122,7 +128,7 @@ pipeline {
 
                     echo "Previous Image ID: ${env.PREVIOUS_IMAGE_ID}"
                     echo "Rollback Image: ${env.IMAGE_NAME}:${env.ROLLBACK_TAG}"
-                    echo 'Previous release saved successfully!'
+                    echo 'Previous release captured successfully!'
                 }
             }
         }
@@ -132,10 +138,12 @@ pipeline {
         // ==========================================
         stage('Docker Build') {
             steps {
+                echo 'Building Docker Image with Git SHA...'
+
                 sh '''
                     set -e
 
-                    : "${IMAGE_TAG:?IMAGE_TAG is missing}"
+                    : "${IMAGE_TAG:?IMAGE_TAG missing}"
 
                     docker build \
                         -t "$IMAGE_NAME:$IMAGE_TAG" \
@@ -147,10 +155,12 @@ pipeline {
         }
 
         // ==========================================
-        // 6. Check PostgreSQL
+        // 6. Check Database
         // ==========================================
         stage('Check Database') {
             steps {
+                echo 'Checking PostgreSQL health...'
+
                 sh '''
                     set -e
 
@@ -168,12 +178,14 @@ pipeline {
                         echo "ERROR: PostgreSQL is not healthy!"
                         exit 1
                     fi
+
+                    echo "PostgreSQL is healthy!"
                 '''
             }
         }
 
         // ==========================================
-        // 7. Docker Deploy
+        // 7. Deploy New Docker Image
         // ==========================================
         stage('Docker Deploy') {
             steps {
@@ -191,7 +203,7 @@ pipeline {
                         set +x
                         set -e
 
-                        : "${IMAGE_TAG:?IMAGE_TAG is missing}"
+                        : "${IMAGE_TAG:?IMAGE_TAG missing}"
 
                         docker compose \
                             --project-name "$COMPOSE_PROJECT" \
@@ -227,10 +239,12 @@ pipeline {
         }
 
         // ==========================================
-        // 8. Health Check
+        // 8. FastAPI Health Check
         // ==========================================
         stage('Health Check') {
             steps {
+                echo 'Checking FastAPI health...'
+
                 sh '''
                     set -e
 
@@ -250,6 +264,7 @@ pipeline {
                     done
 
                     echo "Health Check FAILED!"
+
                     docker logs --tail 30 \
                         "$CONTAINER_NAME" || true
 
@@ -263,6 +278,8 @@ pipeline {
         // ==========================================
         stage('Verify Database Integration') {
             steps {
+                echo 'Checking PostgreSQL integration...'
+
                 sh '''
                     set -e
 
@@ -295,6 +312,8 @@ PY
         // ==========================================
         stage('Verify Release') {
             steps {
+                echo 'Verifying deployed release...'
+
                 sh '''
                     set -e
 
@@ -306,7 +325,10 @@ PY
                         "$IMAGE_NAME:$IMAGE_TAG" \
                         --format='{{.Id}}')
 
-                    test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
+                    if [ "$RUNNING_IMAGE" != "$EXPECTED_IMAGE" ]; then
+                        echo "ERROR: Release verification failed!"
+                        exit 1
+                    fi
 
                     echo "Release verification PASSED!"
                     echo "Running Version: $IMAGE_TAG"
@@ -316,7 +338,7 @@ PY
     }
 
     // ==========================================
-    // Success & Automated Rollback
+    // Post Actions and Automated Rollback
     // ==========================================
     post {
 
@@ -391,6 +413,7 @@ PY
                                 HEALTH_OK=0
 
                                 for i in 1 2 3 4 5 6 7 8 9 10; do
+
                                     RESPONSE=$(curl -fsS --max-time 5 \
                                         http://127.0.0.1:8007/health \
                                         2>/dev/null) || RESPONSE=""
@@ -434,7 +457,7 @@ PY
                         }
                     }
                 } else {
-                    echo 'Deployment was not attempted or no rollback image is available.'
+                    echo 'No deployment was attempted or rollback image missing.'
                     echo 'Automatic rollback skipped.'
                 }
             }
