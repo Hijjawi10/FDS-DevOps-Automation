@@ -18,6 +18,8 @@ from app.security import (
     create_access_token,
 )
 
+from app.dependencies import get_current_user
+from app.models import User
 
 router = APIRouter(
     prefix="/auth",
@@ -25,9 +27,6 @@ router = APIRouter(
 )
 
 
-# ==========================================
-# Register New User
-# ==========================================
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -73,9 +72,6 @@ def register_user(
     return new_user
 
 
-# ==========================================
-# Login - JWT Authentication
-# ==========================================
 @router.post(
     "/login",
     response_model=TokenResponse
@@ -115,3 +111,15 @@ def login_user(
         access_token=access_token,
         token_type="bearer"
     )
+
+
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse
+)
+def get_my_profile(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
