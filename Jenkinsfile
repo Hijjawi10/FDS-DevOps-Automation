@@ -471,7 +471,7 @@ PY
                         )
 
                         if (rollbackStatus == 0) {
-                            echo 'Previous release restored and checks passed.'
+                            echo 'Previous git push origin mainrelease restored and checks passed.'
                         } else {
                             echo 'AUTOMATED ROLLBACK FAILED!'
                             echo 'Manual Docker investigation is required.'
