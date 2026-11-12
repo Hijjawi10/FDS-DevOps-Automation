@@ -1,30 +1,22 @@
 
-import os
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
-from app.database import engine, Base
-from app import models
 from app.routers.products import router as products_router
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if os.getenv("TESTING") != "1":
-        Base.metadata.create_all(bind=engine)
-
-    yield
+from app.routers.auth import router as auth_router
 
 
 app = FastAPI(
     title="FDS DevOps Automation API",
     version="3.0.0",
-    lifespan=lifespan
+    description=(
+        "FDS DevOps Automation API with "
+        "Products Management and Authentication"
+    )
 )
 
 
 app.include_router(products_router)
+app.include_router(auth_router)
 
 
 @app.get("/")

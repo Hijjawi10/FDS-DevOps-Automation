@@ -2,10 +2,15 @@
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+)
 
 
-# Base Product Schema
 class ProductBase(BaseModel):
     name: str = Field(
         ...,
@@ -29,12 +34,10 @@ class ProductBase(BaseModel):
     )
 
 
-# Schema for creating a product
 class ProductCreate(ProductBase):
     pass
 
 
-# Schema for updating a product
 class ProductUpdate(BaseModel):
     name: Optional[str] = Field(
         default=None,
@@ -59,3 +62,54 @@ class ProductResponse(ProductBase):
     id: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+
+class UserCreate(BaseModel):
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        pattern=r"^[a-zA-Z0-9_]+$",
+        description="Unique username"
+    )
+
+    email: EmailStr = Field(
+        ...,
+        description="Valid email address"
+    )
+
+    password: str = Field(
+        ...,
+        min_length=12,
+        max_length=128,
+        description="User password"
+    )
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Password cannot be blank")
+
+        return value
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"

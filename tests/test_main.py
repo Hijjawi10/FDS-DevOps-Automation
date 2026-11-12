@@ -158,3 +158,131 @@ def test_delete_product(client):
 
     check = client.get(f"/products/{product_id}")
     assert check.status_code == 404
+
+
+
+
+def test_register_user(client):
+    user = {
+        "username": "testuser",
+        "email": "testuser@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    response = client.post("/auth/register", json=user)
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["username"] == "testuser"
+    assert data["email"] == "testuser@example.com"
+    assert data["role"] == "user"
+    assert data["is_active"] is True
+
+    assert "password" not in data
+    assert "hashed_password" not in data
+
+
+def test_register_duplicate_username(client):
+    first_user = {
+        "username": "duplicateuser",
+        "email": "first@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    second_user = {
+        "username": "duplicateuser",
+        "email": "second@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    first_response = client.post("/auth/register", json=first_user)
+    assert first_response.status_code == 201
+
+    response = client.post("/auth/register", json=second_user)
+
+    assert response.status_code == 409
+
+
+def test_register_duplicate_email(client):
+    first_user = {
+        "username": "firstuser",
+        "email": "duplicate@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    second_user = {
+        "username": "seconduser",
+        "email": "duplicate@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    first_response = client.post("/auth/register", json=first_user)
+    assert first_response.status_code == 201
+
+    response = client.post("/auth/register", json=second_user)
+
+    assert response.status_code == 409
+
+
+def test_register_invalid_email(client):
+    user = {
+        "username": "invalidemail",
+        "email": "not-an-email",
+        "password": "SecurePassword123!"
+    }
+
+    response = client.post("/auth/register", json=user)
+
+    assert response.status_code == 422
+
+
+def test_register_weak_password(client):
+    user = {
+        "username": "weakpassword",
+        "email": "weak@example.com",
+        "password": "123"
+    }
+
+    response = client.post("/auth/register", json=user)
+
+    assert response.status_code == 422
+
+
+def test_password_is_hashed(client):
+    from app.models import User
+    from app.security import verify_password
+
+    user = {
+        "username": "hashuser",
+        "email": "hash@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    response = client.post("/auth/register", json=user)
+
+    assert response.status_code == 201
+
+    db = TestingSessionLocal()
+
+    try:
+        saved_user = db.query(User).filter(
+            User.username == "hashuser"
+        ).first()
+
+        assert saved_user is not None
+
+        assert saved_user.hashed_password != user["password"]
+
+        assert saved_user.hashed_password.startswith("$argon2id$")
+
+        assert verify_password(
+            user["password"],
+            saved_user.hashed_password
+        )
+
+        assert saved_user.role == "user"
+
+    finally:
+        db.close()

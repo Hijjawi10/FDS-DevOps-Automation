@@ -9,6 +9,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
+COPY alembic.ini ./alembic.ini
+COPY migrations/ ./migrations/
+
+# Create non-root user
 RUN groupadd --system appgroup && \
     useradd --system \
     --gid appgroup \
@@ -17,7 +21,6 @@ RUN groupadd --system appgroup && \
     appuser && \
     chown -R appuser:appgroup /app
 
-# Run application as non-root user
 USER appuser
 
 EXPOSE 8000
