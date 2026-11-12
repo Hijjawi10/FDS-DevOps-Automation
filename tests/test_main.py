@@ -286,3 +286,80 @@ def test_password_is_hashed(client):
 
     finally:
         db.close()
+
+
+def test_login_user(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "loginuser",
+        "email": "login@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    register = client.post("/auth/register", json=user)
+    assert register.status_code == 201
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+
+    assert login.status_code == 200
+
+    data = login.json()
+
+    assert data["token_type"] == "bearer"
+    assert isinstance(data["access_token"], str)
+    assert len(data["access_token"]) > 0
+
+
+
+def test_get_current_user(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "profileuser",
+        "email": "profile@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    assert client.post("/auth/register", json=user).status_code == 201
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["username"] == "profileuser"
+    assert response.json()["email"] == "profile@example.com"
+    assert response.json()["role"] == "user"
+    assert "hashed_password" not in response.json()
+
+
+def test_get_current_user_without_token(client):
+    response = client.get("/auth/me")
+
+    assert response.status_code == 401

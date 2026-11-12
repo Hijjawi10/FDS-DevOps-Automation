@@ -6,8 +6,17 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserResponse
-from app.security import hash_password
+from app.schemas import (
+    UserCreate,
+    UserResponse,
+    LoginRequest,
+    TokenResponse,
+)
+from app.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+)
 
 
 router = APIRouter(
@@ -16,6 +25,9 @@ router = APIRouter(
 )
 
 
+# ==========================================
+# Register New User
+# ==========================================
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -59,3 +71,47 @@ def register_user(
         )
 
     return new_user
+
+
+# ==========================================
+# Login - JWT Authentication
+# ==========================================
+@router.post(
+    "/login",
+    response_model=TokenResponse
+)
+def login_user(
+    credentials: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    invalid_credentials = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid username or password",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+
+    user = db.query(User).filter(
+        User.username == credentials.username
+    ).first()
+
+    if user is None:
+        raise invalid_credentials
+
+    if not verify_password(
+        credentials.password,
+        user.hashed_password
+    ):
+        raise invalid_credentials
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled"
+        )
+
+    access_token = create_access_token(user.id)
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer"
+    )
