@@ -98,7 +98,10 @@ pipeline {
                     ).trim()
 
                     if (runningState != 'true') {
-                        error('Previous backend is not running. Deployment aborted.')
+                        error(
+                            'Previous backend is not running. ' +
+                            'Deployment aborted.'
+                        )
                     }
 
                     env.PREVIOUS_IMAGE_ID = sh(
@@ -189,14 +192,17 @@ pipeline {
         // ==========================================
         stage('Docker Deploy') {
             steps {
-                script {
-                    env.DEPLOY_ATTEMPTED = 'true'
-                }
-
+                // ===================================
+                // NEW: Load DB and JWT Credentials
+                // ===================================
                 withCredentials([
                     string(
                         credentialsId: 'fds-postgres-password',
                         variable: 'DB_PASSWORD'
+                    ),
+                    string(
+                        credentialsId: 'fds-jwt-secret',
+                        variable: 'JWT_SECRET_KEY'
                     )
                 ]) {
                     sh '''
@@ -204,6 +210,13 @@ pipeline {
                         set -e
 
                         : "${IMAGE_TAG:?IMAGE_TAG missing}"
+                        : "${DB_PASSWORD:?DB_PASSWORD missing}"
+                        : "${JWT_SECRET_KEY:?JWT_SECRET_KEY missing}"
+
+                        if [ "${#JWT_SECRET_KEY}" -lt 32 ]; then
+                            echo "ERROR: JWT_SECRET_KEY must have at least 32 characters"
+                            exit 1
+                        fi
 
                         docker compose \
                             --project-name "$COMPOSE_PROJECT" \
@@ -358,10 +371,17 @@ PY
                 ) {
                     echo 'Starting AUTOMATED ROLLBACK...'
 
+                    // ===================================
+                    // NEW: JWT Credential for Rollback
+                    // ===================================
                     withCredentials([
                         string(
                             credentialsId: 'fds-postgres-password',
                             variable: 'DB_PASSWORD'
+                        ),
+                        string(
+                            credentialsId: 'fds-jwt-secret',
+                            variable: 'JWT_SECRET_KEY'
                         )
                     ]) {
                         def rollbackStatus = sh(
@@ -372,6 +392,8 @@ PY
 
                                 : "${ROLLBACK_TAG:?Missing rollback tag}"
                                 : "${PREVIOUS_IMAGE_ID:?Missing previous image}"
+                                : "${DB_PASSWORD:?DB_PASSWORD missing}"
+                                : "${JWT_SECRET_KEY:?JWT_SECRET_KEY missing}"
 
                                 EXPECTED_IMAGE=$(docker image inspect \
                                     "$IMAGE_NAME:$ROLLBACK_TAG" \
