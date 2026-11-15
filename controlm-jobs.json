@@ -76,6 +76,28 @@
         "Urgency": "Urgent"
       }
     },
+    "FDS_Application_Health_Check": {
+      "Type": "Job:Command",
+      "Host": "fds-hijjawi",
+      "RunAs": "hijjawi10",
+      "Command": "/usr/bin/python3 /home/hijjawi10/Desktop/FDS-DevOps-Automation/scripts/health_check.py",
+      "FDS_WaitJenkinsSuccess": {
+        "Type": "WaitForEvents",
+        "Events": [
+          {
+            "Event": "FDS_Jenkins_OK"
+          }
+        ]
+      },
+      "FDS_OnHealthSuccess": {
+        "Type": "If",
+        "CompletionStatus": "OK",
+        "FDS_AddHealthEvent": {
+          "Type": "Event:Add",
+          "Event": "FDS_Health_OK"
+        }
+      }
+    },
     "FDS_Verify_Deployment": {
       "Type": "Job:Command",
       "Host": "fds-hijjawi",
@@ -108,6 +130,7 @@
         "FDS_Database_Backup",
         "FDS_Verify_Backup_Restore",
         "FDS_Jenkins_CICD",
+        "FDS_Application_Health_Check",
         "FDS_Verify_Deployment",
         "FDS_CICD_SLA"
       ]
