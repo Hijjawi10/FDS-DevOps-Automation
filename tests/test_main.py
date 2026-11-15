@@ -15,6 +15,8 @@ from app.main import app
 from app import models
 
 
+
+
 # SQLite database in memory
 SQLALCHEMY_DATABASE_URL = "sqlite://"
 
@@ -363,3 +365,255 @@ def test_get_current_user_without_token(client):
     response = client.get("/auth/me")
 
     assert response.status_code == 401
+
+
+
+def test_users_requires_authentication(client):
+    response = client.get("/users")
+    assert response.status_code == 401
+
+
+def test_regular_user_cannot_list_users(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "regularuser",
+        "email": "regular@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    assert client.post("/auth/register", json=user).status_code == 201
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    response = client.get(
+        "/users",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_can_list_users(client, monkeypatch):
+    from app.models import User
+
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "adminuser",
+        "email": "admin@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    assert client.post("/auth/register", json=user).status_code == 201
+
+    db = TestingSessionLocal()
+    try:
+        admin = db.query(User).filter(
+            User.username == "adminuser"
+        ).first()
+        admin.role = "admin"
+        db.commit()
+    finally:
+        db.close()
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    response = client.get(
+        "/users",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["username"] == "adminuser"
+    assert "hashed_password" not in response.json()
+
+
+
+def test_update_my_profile(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "updateuser",
+        "email": "update@example.com",
+        "password": "SecurePassword123!"
+    }
+
+    assert client.post("/auth/register", json=user).status_code == 201
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    response = client.patch(
+        "/users/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "username": "updateduser",
+            "email": "updated@example.com"
+        }
+    )
+
+    assert response.status_code == 200
+    assert response.json()["username"] == "updateduser"
+    assert response.json()["email"] == "updated@example.com"
+    assert response.json()["role"] == "user"
+
+
+
+
+def test_change_password_success(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "passworduser",
+        "email": "passworduser@example.com",
+        "password": "OldSecurePassword123!"
+    }
+
+    # Register
+    response = client.post("/auth/register", json=user)
+    assert response.status_code == 201
+
+    # Login
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    # Change password
+    response = client.post(
+        "/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "current_password": "OldSecurePassword123!",
+            "new_password": "NewSecurePassword456!"
+        }
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Password changed successfully"
+
+    # Old password must fail
+    old_login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": "OldSecurePassword123!"
+        }
+    )
+    assert old_login.status_code == 401
+
+    # New password must work
+    new_login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": "NewSecurePassword456!"
+        }
+    )
+    assert new_login.status_code == 200
+
+
+def test_change_password_wrong_current_password(client, monkeypatch):
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-key-for-jwt-authentication-123456789"
+    )
+
+    user = {
+        "username": "wrongpassworduser",
+        "email": "wrongpassword@example.com",
+        "password": "OldSecurePassword123!"
+    }
+
+    assert client.post("/auth/register", json=user).status_code == 201
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": user["password"]
+        }
+    )
+    assert login.status_code == 200
+
+    token = login.json()["access_token"]
+
+    response = client.post(
+        "/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "current_password": "IncorrectPassword123!",
+            "new_password": "NewSecurePassword456!"
+        }
+    )
+
+    assert response.status_code == 400
+
+    login_again = client.post(
+        "/auth/login",
+        json={
+            "username": user["username"],
+            "password": "OldSecurePassword123!"
+        }
+    )
+    assert login_again.status_code == 200
+
+
+def test_change_password_without_token(client):
+    response = client.post(
+        "/auth/change-password",
+        json={
+            "current_password": "OldSecurePassword123!",
+            "new_password": "NewSecurePassword456!"
+        }
+    )
+
+    assert response.status_code == 401
+

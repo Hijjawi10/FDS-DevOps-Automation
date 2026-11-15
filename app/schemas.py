@@ -1,6 +1,7 @@
 
 from decimal import Decimal
 from typing import Optional
+from pydantic import BaseModel, Field, field_validator
 
 from pydantic import (
     BaseModel,
@@ -113,3 +114,37 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = Field(
+        default=None,
+        min_length=3,
+        max_length=50,
+        pattern=r"^[a-zA-Z0-9_]+$"
+    )
+
+    email: Optional[EmailStr] = None
+
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(
+        ...,
+        min_length=1
+    )
+
+    new_password: str = Field(
+        ...,
+        min_length=12,
+        max_length=128
+    )
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("New password cannot be blank")
+
+        return value
